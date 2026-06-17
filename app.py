@@ -660,6 +660,7 @@ class RuleBasedAgent:
 # TRAINING (Part 3: opponent mix changed, Part 4: shaping applied)
 # ===========================================================================
 
+
 def run_training(
     episodes: int = 100_000,
     progress_bar=None,
@@ -684,6 +685,18 @@ def run_training(
     CHANGED (Part 8 — Exploration): a warmup period (first `warmup_frac` of
     episodes) is computed and passed to the agent so epsilon stays at 1.0
     during that phase regardless of decay.
+
+    FIXED (X/O strength asymmetry): the game always starts with X
+    (first_player=1), matching real Tic-Tac-Toe rules, regardless of which
+    side the learner is assigned. Previously `first_player` was tied to
+    `learner_side`, which meant O-learner episodes started with O moving
+    first on an empty board — a state that can never occur in real play.
+    This polluted the Q-table with experience from an unreachable game tree
+    and starved the agent of practice responding to real X openings as O.
+    Now, when learner_side == -1, the turn loop's existing
+    `player == learner_side` dispatch naturally lets opp_agent make the
+    first (X) move before the learner ever acts, so every state the O-side
+    learner trains on is one it could actually face during real gameplay.
     """
     warmup_frac = 0.02
     warmup_episodes = max(1, int(episodes * warmup_frac))
@@ -708,9 +721,13 @@ def run_training(
         opponent_type = OPPONENT_RULE if random.random() < 0.40 else OPPONENT_MINIMAX
         opp_agent = rule_opp if opponent_type == OPPONENT_RULE else minimax_opp
 
+        # Learner alternates X/O each episode for balanced training, but the
+        # game itself ALWAYS starts with X (real Tic-Tac-Toe rule). When the
+        # learner is O, opp_agent will simply take the first turn as X inside
+        # the loop below — no special-casing needed, the existing
+        # `player == learner_side` check already routes it correctly.
         learner_side = 1 if ep % 2 == 0 else -1
-        first_player = 1 if ep % 2 == 0 else -1
-        state, _ = env.reset(first_player=first_player)
+        state, _ = env.reset(first_player=1)
         last_transition = None  # (state, action, player) for the learner's own last move
         done = False
         info = {}
@@ -785,6 +802,7 @@ def run_training(
             )
 
     return agent
+
 
 
 # ===========================================================================
